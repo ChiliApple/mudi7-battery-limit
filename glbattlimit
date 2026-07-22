@@ -48,9 +48,12 @@ LIMF=/tmp/glbattlimit.limit
 GUI_M=13867          # slope  * 10000
 GUI_B=189300         # offset * 10000 (subtracted)
 
-gauge2gui() { g=$(( ($1 * GUI_M - GUI_B) / 10000 ))
+# Rounded, not truncated: ash does integer division, so half the divisor is
+# added before dividing. Truncating here cost about one point per conversion
+# and two on a round trip.
+gauge2gui() { g=$(( ($1 * GUI_M - GUI_B + 5000) / 10000 ))
               [ "$g" -lt 0 ] && g=0; [ "$g" -gt 100 ] && g=100; echo "$g"; }
-gui2gauge() { echo $(( ($1 * 10000 + GUI_B) / GUI_M )); }
+gui2gauge() { echo $(( ($1 * 10000 + GUI_B + GUI_M / 2) / GUI_M )); }
 
 log() { logger -t glbattlimit "$*"; }
 

@@ -73,10 +73,17 @@ glbattlimit on 80 gui      # 80 % GUI    -> converted to 71 % gauge
 
 | GUI target | `glbattlimit on` (gauge) |
 |---|---|
+| 70 % | 64 |
 | 75 % | 68 |
 | **80 %** | **71** |
 | 85 % | 75 |
 | 90 % | 79 |
+
+One gauge point is about 1.4 GUI points, so the GUI scale cannot be hit
+exactly at every value. Converting back and forth is stable up to about 85 %;
+above that a round trip can land one point higher (GUI 90 → gauge 79 → GUI 91).
+`status` always shows both numbers, so it is visible which value actually
+applies.
 
 ### Still wanted: data points at the edges
 
