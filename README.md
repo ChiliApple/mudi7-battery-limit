@@ -8,10 +8,15 @@ Tested on firmware **4.8.5**. No kernel module, no patched firmware — a single
 POSIX shell script writing to sysfs attributes the stock driver already exposes.
 
 ```
-# glbattlimit on 80
-Charge limit active: 80 %   (currently 78 %)
+# glbattlimit on 80 gui
+GUI 80 % -> gauge 71 % (estimate, see README)
+Charge limit active: 71 % gauge / ~79 % GUI
+Currently: 65 % gauge / ~71 % GUI
 Released automatically when the charger is unplugged.
 ```
+
+The router shows a different percentage than the fuel gauge does. The script
+knows both scales — read the next section before choosing a number.
 
 ---
 
@@ -146,7 +151,45 @@ On the router (SSH):
 wget -O /usr/bin/glbattlimit https://raw.githubusercontent.com/ChiliApple/mudi7-battery-limit/main/glbattlimit && chmod +x /usr/bin/glbattlimit && glbattlimit status
 ```
 
-A firmware update overwrites `/usr/bin`, so re-run the line after flashing.
+`glbattlimit status` must print a full block ending in `Buck vreg`. If it does
+not, the download was incomplete — do not use the file.
+
+Note that `wget` on OpenWrt may report a smaller transfer size than the file
+actually has, because GitHub serves the raw file gzip-compressed. Check the
+file itself, not the transfer counter:
+
+```sh
+wc -c /usr/bin/glbattlimit; sh -n /usr/bin/glbattlimit && echo "SYNTAX OK"
+```
+
+A firmware update overwrites `/usr/bin`, so re-run the install line after
+flashing.
+
+## Update
+
+**Always disable the limit first.** A running watcher is an executing shell
+script; replacing the file underneath it leads to undefined behaviour, because
+`ash` reads the script incrementally rather than loading it into memory.
+
+```sh
+glbattlimit off
+```
+
+Then fetch the new version and check it:
+
+```sh
+wget -O /usr/bin/glbattlimit https://raw.githubusercontent.com/ChiliApple/mudi7-battery-limit/main/glbattlimit && chmod +x /usr/bin/glbattlimit && sh -n /usr/bin/glbattlimit && glbattlimit status
+```
+
+Finally re-enable with your limit:
+
+```sh
+glbattlimit on 80 gui
+```
+
+`off` also restores the factory CV value before the file is replaced, so an
+interrupted update cannot leave charging blocked. If it ever does, unplug and
+replug the charger once — that restores the factory state unconditionally.
 
 ## Uninstall
 
@@ -168,6 +211,20 @@ factory state.
 | `glbattlimit on [PERCENT] gui` | enable limit on the **GUI** scale, converted (see formula above) |
 | `glbattlimit off` | release limit, normal charging |
 | `glbattlimit status` | current state, both scales, voltage, current, chip state |
+
+```
+# glbattlimit status
+Limit     : active (71 % gauge / ~79 % GUI, PID 26302)
+Capacity  : 65 % gauge / ~71 % GUI (estimated)
+Voltage   : 4145 mV
+Current   : 0 mA  (+charging -discharging 0=blocked)
+Charger   : online=1
+Pump      : charge_en=0  (0=off 1=bypass 2=2:1)
+Buck vreg : 3900000 uV  (factory 4400000)
+```
+
+`Current : 0 mA` with `online=1` is the working state: the charger is
+connected, the router runs from it, and nothing flows into the cell.
 
 The watcher started by `on` **exits by itself when you unplug the charger** and
 restores the factory state. Plugging in again charges normally until you run
