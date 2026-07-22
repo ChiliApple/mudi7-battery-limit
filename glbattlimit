@@ -34,6 +34,24 @@ POLL=15
 PIDF=/tmp/glbattlimit.pid
 LIMF=/tmp/glbattlimit.limit
 
+# --- gauge <-> GUI conversion (PROVISIONAL) -------------------------------
+# The GL.iNet GUI/touchscreen does not show the fuel gauge value. Measured
+# pairs fit a straight line very closely (4 points, max deviation 0.5 pt):
+#
+#   GUI = 1.3867 * gauge - 18.93
+#
+# Extrapolated, GUI 100 % is gauge ~86 and GUI 0 % is gauge ~14, i.e. the GUI
+# stretches the usable window onto 0-100 - consistent with the `v42_cap`
+# symbol in quec_battery (capacity referenced to a 4.2 V full charge on a
+# 4.4 V cell). Only validated between gauge 62 and 78; treat values outside
+# that band as estimates. Scaled integer math, no floating point in ash.
+GUI_M=13867          # slope  * 10000
+GUI_B=189300         # offset * 10000 (subtracted)
+
+gauge2gui() { g=$(( ($1 * GUI_M - GUI_B) / 10000 ))
+              [ "$g" -lt 0 ] && g=0; [ "$g" -gt 100 ] && g=100; echo "$g"; }
+gui2gauge() { echo $(( ($1 * 10000 + GUI_B) / GUI_M )); }
+
 log() { logger -t glbattlimit "$*"; }
 
 need() {
@@ -97,8 +115,17 @@ case "$1" in
     case "$l" in
         ''|*[!0-9]*) echo "Invalid value: $l"; exit 1 ;;
     esac
+    if [ "$3" = "gui" ]; then
+        if [ "$l" -lt 20 ] || [ "$l" -gt 100 ]; then
+            echo "GUI value must be between 20 and 100."
+            exit 1
+        fi
+        g=$(gui2gauge "$l")
+        echo "GUI ${l} % -> gauge ${g} % (estimate, see README)"
+        l=$g
+    fi
     if [ "$l" -lt 50 ] || [ "$l" -gt 100 ]; then
-        echo "Limit must be between 50 and 100."
+        echo "Limit must be between 50 and 100 (gauge scale)."
         exit 1
     fi
     stop_watcher
@@ -109,7 +136,8 @@ case "$1" in
     echo "$l" > "$LIMF"
     nohup "$0" _watch >/dev/null 2>&1 &
     sleep 2
-    echo "Charge limit active: $l %   (currently $(cap) %)"
+    echo "Charge limit active: $l % gauge / ~$(gauge2gui $l) % GUI"
+    echo "Currently: $(cap) % gauge / ~$(gauge2gui $(cap)) % GUI"
     echo "Released automatically when the charger is unplugged."
     ;;
 
@@ -125,11 +153,12 @@ case "$1" in
     need
     p=$(cat "$PIDF" 2>/dev/null)
     if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
-        echo "Limit     : active ($(cat $LIMF 2>/dev/null) %, PID $p)"
+        lm=$(cat $LIMF 2>/dev/null)
+        echo "Limit     : active ($lm % gauge / ~$(gauge2gui $lm) % GUI, PID $p)"
     else
         echo "Limit     : off"
     fi
-    echo "Capacity  : $(cap) %"
+    echo "Capacity  : $(cap) % gauge / ~$(gauge2gui $(cap)) % GUI (estimated)"
     echo "Voltage   : $(vnow_mv) mV"
     echo "Current   : $(cat $BAT/current_now) mA  (+charging -discharging 0=blocked)"
     echo "Charger   : online=$(online)"
@@ -142,7 +171,14 @@ case "$1" in
     ;;
 
   *)
-    echo "glbattlimit on [PERCENT] | off | status"
+    echo "glbattlimit - charge limit for GL.iNet Mudi 7 (GL-E5800)"
+    echo ""
+    echo "  glbattlimit on [PERCENT]       enable limit, gauge scale (default $DEF_LIMIT)"
+    echo "  glbattlimit on [PERCENT] gui   enable limit, GUI scale (converted)"
+    echo "  glbattlimit off                disable limit"
+    echo "  glbattlimit status             show state"
+    echo ""
+    echo "  Gauge and GUI use different scales - see status output."
     exit 1
     ;;
 esac

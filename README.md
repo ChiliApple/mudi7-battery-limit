@@ -38,28 +38,57 @@ display as roughly 85–90 %. Always compare against `glbattlimit status`, never
 against the screen. If you want the screen to read 80 %, set the limit lower —
 around 70–75 — and verify with `status`.
 
-### Work in progress — data points wanted
+### Provisional conversion formula
 
-Mapping the gauge value to the displayed value is still open. Three data points
-are not enough to tell whether the offset follows a curve, and it may well
-differ between units and cell ages.
+Four measured pairs fit a straight line almost exactly:
 
-If you use this script, please help by reporting pairs: read the number on the
-GUI or touchscreen, run `glbattlimit status` at the same moment, and post both
-values — ideally a few pairs spread across the range (roughly 40 %, 60 %, 80 %,
-95 %), together with whether the charger was plugged in at the time.
+| gauge | GUI measured | fit | deviation |
+|---|---|---|---|
+| 62 | 67 | 67.0 | 0.0 |
+| 65 | 71 | 71.2 | +0.2 |
+| 71 | 80 | 79.5 | −0.5 |
+| 78 | 89 | 89.2 | +0.2 |
+
+```
+GUI = 1.3867 * gauge - 18.93
+```
+
+Extrapolated, GUI 100 % corresponds to gauge ~86 and GUI 0 % to gauge ~14 —
+the GUI stretches the usable window onto 0–100. That matches the `v42_cap`
+symbol in `quec_battery`: a capacity referenced to a 4.2 V full charge on a
+4.4 V cell, with the lower end near `min_shutdown_mv` (3400 mV).
+
+The script implements this conversion. `status` shows both scales, and you can
+set the limit in either:
+
+```sh
+glbattlimit on 71          # 71 % gauge  (~80 % GUI)
+glbattlimit on 80 gui      # 80 % GUI    -> converted to 71 % gauge
+```
+
+| GUI target | `glbattlimit on` (gauge) |
+|---|---|
+| 75 % | 68 |
+| **80 %** | **71** |
+| 85 % | 75 |
+| 90 % | 79 |
+
+### Still wanted: data points at the edges
+
+The formula is validated only between gauge 62 and 78. Outside that band it is
+an extrapolation, and fuel gauges are typically non-linear near the ends — the
+line may well bend below ~40 % and above ~85 %. It may also differ between
+units and with cell age.
+
+If you use this script, please help: read the number on the GUI or touchscreen,
+run `glbattlimit status` at the same moment, and post both values. Most useful
+are pairs around **40–50 %** and **82–95 %**.
 
 Open an [issue](https://github.com/ChiliApple/mudi7-battery-limit/issues) with:
 
 ```
 GUI: 80    gauge: 71    charger plugged: yes    firmware: 4.8.5
 ```
-
-With enough samples the script can show both numbers, so you can set the limit
-in whichever scale you prefer. Until then, treat the displayed percentage as
-indicative only.
-
----
 
 ## Why
 
@@ -135,9 +164,10 @@ factory state.
 
 | Command | Effect |
 |---|---|
-| `glbattlimit on [PERCENT]` | enable limit, default 80, valid range 50–100 |
+| `glbattlimit on [PERCENT]` | enable limit on the **gauge** scale, default 80, range 50–100 |
+| `glbattlimit on [PERCENT] gui` | enable limit on the **GUI** scale, converted (see formula above) |
 | `glbattlimit off` | release limit, normal charging |
-| `glbattlimit status` | current state, capacity, voltage, current, chip state |
+| `glbattlimit status` | current state, both scales, voltage, current, chip state |
 
 The watcher started by `on` **exits by itself when you unplug the charger** and
 restores the factory state. Plugging in again charges normally until you run
