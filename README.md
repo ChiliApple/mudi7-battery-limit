@@ -38,6 +38,27 @@ display as roughly 85–90 %. Always compare against `glbattlimit status`, never
 against the screen. If you want the screen to read 80 %, set the limit lower —
 around 70–75 — and verify with `status`.
 
+### Work in progress — data points wanted
+
+Mapping the gauge value to the displayed value is still open. Three data points
+are not enough to tell whether the offset follows a curve, and it may well
+differ between units and cell ages.
+
+If you use this script, please help by reporting pairs: read the number on the
+GUI or touchscreen, run `glbattlimit status` at the same moment, and post both
+values — ideally a few pairs spread across the range (roughly 40 %, 60 %, 80 %,
+95 %), together with whether the charger was plugged in at the time.
+
+Open an [issue](https://github.com/ChiliApple/mudi7-battery-limit/issues) with:
+
+```
+GUI: 80    gauge: 71    charger plugged: yes    firmware: 4.8.5
+```
+
+With enough samples the script can show both numbers, so you can set the limit
+in whichever scale you prefer. Until then, treat the displayed percentage as
+indicative only.
+
 ---
 
 ## Why
