@@ -1,139 +1,148 @@
 # mudi7-battery-limit
 
-Charge limit for the **GL.iNet Mudi 7 (GL-E5800)**.
+Charge limit for the **GL.iNet Mudi 7 (GL-E5800)**. Stops charging at a
+configurable state of charge while the router keeps running from USB-C power,
+so you do not have to pull the battery out for stationary 24/7 operation.
 
-Stops charging at a configurable state of charge while the router keeps running
-on USB-C power. The battery stays in the device, so it still works as a UPS
-during a power blip — no need to pull the cell out for stationary 24/7 use.
+Tested on firmware **4.8.5**. No kernel module, no patched firmware — a single
+POSIX shell script writing to sysfs attributes the stock driver already exposes.
 
-Verified on firmware **4.8.5**.
+```
+# glbattlimit on 80
+Charge limit active: 80 %   (currently 78 %)
+Released automatically when the charger is unplugged.
+```
 
 ---
 
-## Why this is needed
+## Important: the percentage is NOT the number on the screen
 
-The only workaround discussed so far is physically removing the battery, which
-also removes the UPS behaviour and means opening the battery cover over and over.
-There is currently no GUI setting and no UCI option for a charge limit.
+All values used and shown by this script come from the **CW2217 fuel gauge**
+(`/sys/class/power_supply/cw221X-bat/capacity`). The GL.iNet GUI and the
+touchscreen show a **different, consistently higher** number — observed offsets
+ranged from about 5 to 11 points.
 
-The earlier community workaround — writing `constant_charge_voltage` on the buck
-charger — does **not** work when the power supply negotiates **PD PPS**, because
-in that mode the buck is not the active charge path at all.
+```
+GUI 80 %  ->  gauge 71 %
+GUI 89 %  ->  gauge 78 %
+GUI 67 %  ->  gauge 62 %
+```
+
+The offset is not constant, so there is no simple conversion. The likely reason:
+`quec_battery` contains a `v42_cap` symbol, suggesting a second capacity value
+referenced to a 4.2 V full charge, while the gauge reports against the cell's
+actual 4.4 V full charge.
+
+**Consequence:** `glbattlimit on 80` limits to 80 % *gauge*, which the GUI will
+display as roughly 85–90 %. Always compare against `glbattlimit status`, never
+against the screen. If you want the screen to read 80 %, set the limit lower —
+around 70–75 — and verify with `status`.
+
+---
+
+## Why
+
+The Mudi 7 has an integrated battery, and in stationary use it sits at 100 %
+around the clock. The only workaround so far was to physically remove the
+battery, which also removes the UPS behaviour during a power blip.
+
+A previously published workaround caps `constant_charge_voltage` on the
+SGM41542S buck charger via a hotplug script. That works for QC / fixed-PDO /
+BC1.2 charging, but **not for USB-PD PPS** — which is what the stock Mudi 7
+charger negotiates. This script covers the PPS case.
 
 ## How it works
 
-The Mudi 7 has a two-stage charging architecture:
+The Mudi 7 uses a two-stage charging architecture:
 
-| Chip | Role |
-|---|---|
-| **SGM41600** | switched-capacitor charger, 2:1 divider, fed directly from the PPS source. This is the fast-charge path. |
-| **SGM41542S** | buck charger with NVDC power path. Supplies the system, charges when the pump is not running. |
-| **CW2217** | fuel gauge |
-| **AW35615** | USB-C / PD3.0 controller (two ports) |
+| Chip | Role | sysfs |
+|---|---|---|
+| **SGM41600** | switched-capacitor charger, 2:1 divider, fed directly from the PPS source | `/sys/class/power_supply/sgm41600-standalone/device/sgm41600/` |
+| **SGM41542S** | buck charger with NVDC power path, supplies the system, charges on non-PPS sources | `/sys/class/power_supply/charger/device/sgm41542s/` |
+| **CW2217** | fuel gauge | `/sys/class/power_supply/cw221X-bat/` |
+| **AW35615** | USB-C / PD3.0 controller (2 ports) | `/sys/bus/i2c/drivers/aw35615/*/AW35615-*/` |
 
-`quec_battery` is the userspace daemon that arbitrates between them. Per the
-SGM41600 datasheet, the host must disable the main charger before enabling the
-slave — which is why the buck reports `charge_en = 0` while the pump is running.
+Under PPS the switched-cap charger does the work, so the buck's CV setting is
+bypassed entirely. Measured: `VBUS 8792 mV / VBAT 4288 mV = 2.05`, and
+`ibus 1536 mA` vs `ibat 2586 mA` — the classic 2:1 signature.
 
-The limit therefore needs **both** levers:
+The script therefore does two things when the limit is reached:
 
-1. `charge_en = 0` on the SGM41600 — turns the pump off.
-   `quec_battery` responds by re-enabling the SGM41542S buck.
-2. `vreg` on the SGM41542S set below the current cell voltage — so the buck
-   does not charge either.
+1. `charge_en = 0` on the **SGM41600** — turns the charge pump off.
+   `quec_battery` (the vendor daemon) then re-enables the buck, as required
+   by the SGM41600 datasheet: *"the host must disable the main charger before
+   enabling the SGM41600"*.
+2. `vreg` on the **SGM41542S** set below the current cell voltage — so the
+   buck does not charge either.
 
-Result: charge current exactly **0 mA**, system still powered from the adapter,
-battery neither charged nor discharged.
-
-Both writes are restrictive only. `vreg` is always far below `bat_ovp_uv`
-(4,400,000 µV), so overcharging is impossible. If the script dies, the device
-simply charges normally again.
-
-### Measured evidence
-
-Charging via the pump, 8.8 V PPS input:
-
-```
-charge_en=2  ibat_adc=2586 mA  ibus_adc=1536 mA  vbus_adc=8792 mV  vbat_adc=4288 mV
-```
-
-8792 / 4288 = 2.05 — the 2:1 divider. Input current is roughly half the battery
-current, exactly as the switched-capacitor topology specifies.
-
-With both levers applied:
+Result: **0 mA into the cell**, router still running from the adapter.
 
 ```
 18:56:26 vnow=4008000 inow=0 cap=68
 18:56:31 vnow=4008000 inow=0 cap=68
-...
-18:58:33 vnow=4009000 inow=0 cap=68
+18:56:36 vnow=4008000 inow=0 cap=68
+...held for 60 s, no drift
 ```
 
-Flat voltage, zero current, stable capacity, router still online.
-
-### Notes on the cell
-
-This is a **4.4 V** cell, not a 4.2 V one — both `vreg` (4,400,000 µV) and
-`bat_ovp_uv` (4,400,000 µV) confirm it. Percentages derived from 4.2 V cell
-curves will be wrong. Measured internal resistance is roughly **52 mΩ**, so at
-2.5 A charge current the terminal voltage sits ~130 mV above the open-circuit
-voltage.
-
-The GUI percentage and the fuel gauge percentage differ by a roughly constant
-offset. The script always uses the gauge
-(`/sys/class/power_supply/cw221X-bat/capacity`).
-
----
+Both writes are restrictive only — `vreg` stays far below the cell's
+`bat_ovp_uv` of 4.4 V. Overcharging is not possible; the worst failure mode is
+that the device charges normally.
 
 ## Install
 
+On the router (SSH):
+
 ```sh
-wget -O /usr/bin/glbattlimit https://raw.githubusercontent.com/ChiliApple/mudi7-battery-limit/main/glbattlimit
-chmod +x /usr/bin/glbattlimit
-glbattlimit status
+wget -O /usr/bin/glbattlimit https://raw.githubusercontent.com/ChiliApple/mudi7-battery-limit/main/glbattlimit && chmod +x /usr/bin/glbattlimit && glbattlimit status
 ```
 
-`/usr/bin` is not preserved across firmware updates — reinstall after a flash.
+A firmware update overwrites `/usr/bin`, so re-run the line after flashing.
+
+## Uninstall
+
+```sh
+glbattlimit off; rm -f /usr/bin/glbattlimit /tmp/glbattlimit.pid /tmp/glbattlimit.limit; echo "glbattlimit removed"
+```
+
+`off` stops the watcher and restores the factory CV value before the file is
+deleted. Nothing else is left behind — the script never writes to flash, never
+creates a UCI section and never installs an init script. If the file is deleted
+while a limit is still active, unplug and replug the charger once to restore the
+factory state.
 
 ## Usage
 
-```sh
-glbattlimit on          # limit at 80 %
-glbattlimit on 75       # limit at 75 %
-glbattlimit off         # back to normal charging
-glbattlimit status      # show state
-```
+| Command | Effect |
+|---|---|
+| `glbattlimit on [PERCENT]` | enable limit, default 80, valid range 50–100 |
+| `glbattlimit off` | release limit, normal charging |
+| `glbattlimit status` | current state, capacity, voltage, current, chip state |
 
-`on` starts a small background watcher. It exits by itself when the charger is
-unplugged and restores the factory state, so the next plug-in charges normally
-unless you enable the limit again. Nothing runs when the limit is off.
+The watcher started by `on` **exits by itself when you unplug the charger** and
+restores the factory state. Plugging in again charges normally until you run
+`on` once more. Nothing runs in the background when the limit is not active.
 
-Log output goes to syslog:
+## Notes and caveats
 
-```sh
-logread | grep glbattlimit
-```
+- Percentages are fuel gauge values, not GUI values — see the section at the top.
+- The cell is a **4.4 V high-voltage cell** (`vreg` factory default 4400000,
+  `bat_ovp_uv` 4400000). Voltage/SoC rules of thumb for 4.2 V cells do not
+  apply.
+- `quec_battery` rewrites the charger registers on every plug **uevent**, not
+  periodically. The watcher re-applies the gate every 15 s, which covers it.
+- Nothing is written to flash. State lives in `/tmp` and disappears on reboot.
+- `set_cap` / `gl_otg.typec1.threshold` is **not** a charge limit — that is the
+  GUI setting for the minimum SoC at which USB power output is cut. Setting it
+  does not affect charging.
+- `pd_full_mv` in `/etc/config/qlbattery` has no effect under PPS (tested:
+  set to 4000, cell still charged to 4.29 V at full current).
 
----
+## Disclaimer
 
-## Caveats
+Unofficial. Not affiliated with GL.iNet. Use at your own risk — running
+third-party scripts may affect warranty support. The script only ever lowers
+charge voltage and disables charging; it never raises any limit.
 
-- Not an official GL.iNet feature. Firmware updates may change the sysfs layout;
-  the script checks for the required paths and refuses to run if they are missing.
-- Tested only on GL-E5800 firmware 4.8.5.
-- The watcher polls every 15 s, so charging can continue for up to 15 s past the
-  threshold after a plug event.
-- `glbattlimit off` restores `vreg` and charging resumes via the buck immediately.
-  The faster pump path returns on the next unplug/plug cycle.
-
-## What GL.iNet would need to do
-
-Nothing in the hardware or the drivers is missing. The levers are already there
-and already writable. A supported implementation would be a GUI setting backed by
-a UCI option, applied by `quec_battery` itself — which already reads
-`/etc/config/qlbattery` for `max_current_ma`, `min_shutdown_mv`, `max_pd_vbus_mv`
-and `pd_full_mv`. A fifth option would be enough.
-
-## Licence
+## License
 
 MIT
