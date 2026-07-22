@@ -6,21 +6,19 @@
 #   glbattlimit off            disable limit, normal charging
 #   glbattlimit status         show current state
 #
-# The watcher exits by itself when the charger is unplugged and restores
+# The watcher terminates itself when the charger is unplugged and restores
 # the factory state, so the next plug-in charges normally again.
 #
 # How it works (verified on firmware 4.8.5):
-#   1. SGM41600 switched-cap charger (2:1) -> charge_en=0
+#   1. SGM41600 switched-capacitor charger (2:1) -> charge_en = 0
 #      quec_battery then re-enables the SGM41542S buck charger.
-#   2. SGM41542S buck -> vreg set below the current cell voltage,
-#      so the buck does not charge either. Result: 0 mA into the cell,
-#      router keeps running from the adapter, UPS behaviour preserved.
+#   2. SGM41542S buck -> vreg set below the current cell voltage
+#      so the buck does not charge either. Result: 0 mA charge current.
 #
-# Both writes are restrictive only (vreg << bat_ovp_uv = 4.4 V), so this
-# cannot overcharge. If anything fails, the device simply charges normally.
+# Both writes are restrictive only (vreg << bat_ovp_uv = 4.4 V).
+# Overcharging is impossible; on any failure the device just charges normally.
 #
-# Repo: https://github.com/ChiliApple/mudi7-battery-limit
-# License: MIT
+# https://github.com/ChiliApple/mudi7-battery-limit
 #
 
 BAT=/sys/class/power_supply/cw221X-bat
@@ -28,9 +26,9 @@ CHG=/sys/class/power_supply/charger
 PUMP=/sys/class/power_supply/sgm41600-standalone/device/sgm41600
 BUCK=/sys/class/power_supply/charger/device/sgm41542s
 
-VREG_NORMAL=4400000     # factory CV target (uV)
-VREG_FLOOR=3900000      # lowest value we ever write (uV)
-VREG_MARGIN=150         # mV below current terminal voltage
+VREG_NORMAL=4400000       # factory constant-voltage target (uV)
+VREG_FLOOR=3900000        # lowest value used for gating (uV)
+VREG_MARGIN=150           # mV below current terminal voltage
 DEF_LIMIT=80
 POLL=15
 PIDF=/tmp/glbattlimit.pid
@@ -42,7 +40,7 @@ need() {
     for f in "$BAT/capacity" "$BAT/voltage_now" "$BAT/current_now" \
              "$CHG/online" "$PUMP/charge_en" "$BUCK/vreg"; do
         if [ ! -e "$f" ]; then
-            echo "ERROR: $f missing - wrong model or changed firmware."
+            echo "ERROR: $f missing - wrong model or firmware."
             exit 1
         fi
     done
@@ -61,9 +59,8 @@ gate_on() {
 }
 
 # Only restore vreg. Do NOT write charge_en=2 ourselves: the SGM41600 is a
-# slave charger, the host must disable the main charger before enabling it.
-# The buck resumes charging immediately; the pump comes back on the next
-# plug event.
+# slave charger and switching it back is the host's job. The buck resumes
+# charging immediately; the pump returns on the next plug event.
 gate_off() { echo "$VREG_NORMAL" > "$BUCK/vreg" 2>/dev/null; }
 
 stop_watcher() {
@@ -98,7 +95,7 @@ case "$1" in
     l="$2"
     [ -z "$l" ] && l=$DEF_LIMIT
     case "$l" in
-      ''|*[!0-9]*) echo "Invalid value: $l"; exit 1 ;;
+        ''|*[!0-9]*) echo "Invalid value: $l"; exit 1 ;;
     esac
     if [ "$l" -lt 50 ] || [ "$l" -gt 100 ]; then
         echo "Limit must be between 50 and 100."
@@ -121,7 +118,7 @@ case "$1" in
     stop_watcher
     gate_off
     echo "Charge limit off - normal charging."
-    echo "Full charge current returns after the next unplug/replug."
+    echo "Full charge current returns after the next unplug/plug cycle."
     ;;
 
   status)
@@ -145,11 +142,7 @@ case "$1" in
     ;;
 
   *)
-    echo "glbattlimit - charge limit for GL.iNet Mudi 7 (GL-E5800)"
-    echo ""
-    echo "  glbattlimit on [PERCENT]   enable limit (default $DEF_LIMIT)"
-    echo "  glbattlimit off            disable limit"
-    echo "  glbattlimit status         show state"
+    echo "glbattlimit on [PERCENT] | off | status"
     exit 1
     ;;
 esac
