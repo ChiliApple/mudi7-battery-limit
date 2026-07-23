@@ -28,18 +28,29 @@ Released automatically when the charger is unplugged.
 ### Option A — package, no SSH needed
 
 Download
-[`glbattlimit_1.0.0_all.ipk`](https://github.com/ChiliApple/mudi7-battery-limit/releases/latest)
+[`glbattlimit_1.0.0-1_all.ipk`](https://github.com/ChiliApple/mudi7-battery-limit/releases/latest)
 and install it from the router's web interface:
 
 **LuCI** (Admin Panel → System → Advanced Settings) → **System** → **Software** →
 **Upload Package…**
 
-Or paste the asset URL into the *Package name or URL* field on the same page.
+LuCI will warn that the source is untrusted and show the checksums — that is
+normal for any manually uploaded package, since opkg only verifies signatures on
+feed indexes, not on individual files. Compare the MD5 against the release page
+and continue.
 
-The package is `Architecture: all` — pure POSIX shell, no dependencies. After
-installation it also appears under **APPLICATIONS → Plug-ins** with an uninstall
-button. Removing it releases the limit first, so the charger returns to its
-factory state.
+Verified working on firmware 4.8.5: the package then appears in the GL.iNet
+Admin Panel under **APPLICATIONS → Plug-ins** with an uninstall button.
+Uninstalling releases the limit first, so the charger returns to its factory
+state even when removed from the GUI. The size column may read *unknown* there —
+that value comes from a feed index, which a manually installed package has none
+of.
+
+Or install over SSH:
+
+```sh
+cd /tmp && wget -O gbl.ipk https://github.com/ChiliApple/mudi7-battery-limit/releases/download/v1.0.0/glbattlimit_1.0.0-1_all.ipk && opkg install gbl.ipk
+```
 
 ### Option B — script, via SSH
 
