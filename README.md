@@ -25,7 +25,23 @@ Released automatically when the charger is unplugged.
 
 ## Install
 
-On the router, via SSH:
+### Option A — package, no SSH needed
+
+Download
+[`glbattlimit_1.0.0_all.ipk`](https://github.com/ChiliApple/mudi7-battery-limit/releases/latest)
+and install it from the router's web interface:
+
+**LuCI** (Admin Panel → System → Advanced Settings) → **System** → **Software** →
+**Upload Package…**
+
+Or paste the asset URL into the *Package name or URL* field on the same page.
+
+The package is `Architecture: all` — pure POSIX shell, no dependencies. After
+installation it also appears under **APPLICATIONS → Plug-ins** with an uninstall
+button. Removing it releases the limit first, so the charger returns to its
+factory state.
+
+### Option B — script, via SSH
 
 ```sh
 wget -O /usr/bin/glbattlimit https://raw.githubusercontent.com/ChiliApple/mudi7-battery-limit/main/glbattlimit && chmod +x /usr/bin/glbattlimit && glbattlimit status
@@ -245,9 +261,15 @@ that the device charges normally.
 
 ## Disclaimer
 
-Unofficial, not affiliated with GL.iNet. Use at your own risk — running
-third-party scripts may affect warranty support. The script only ever lowers
-the charge voltage and disables charging; it never raises any limit.
+Unofficial, not affiliated with GL.iNet.
+
+The script only ever lowers the charge voltage and disables charging — it never
+raises any limit, and `vreg` stays far below the cell's own over-voltage
+threshold. Even so: it writes to charger registers that the vendor daemon also
+manages, and GL.iNet's warranty terms exclude devices where *"the software has
+been manipulated"*. Their warranty covers hardware rather than software
+elements, and third-party plug-ins are explicitly outside their support scope.
+Use at your own risk.
 
 ## License
 
